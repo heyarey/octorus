@@ -888,6 +888,23 @@ fn build_help_lines(kb: &KeybindingsConfig) -> Vec<Line<'static>> {
             fmt_key(&kb.temporary_comment.display(), key_width)
         )),
         Line::from(format!("{}  Cancel selection", fmt_key("Esc", key_width))),
+        Line::from(vec![Span::styled(
+            "  Temporary Note Input:",
+            Style::default().fg(Color::DarkGray),
+        )]),
+        Line::from(format!(
+            "{}  Save note in memory and return to diff",
+            fmt_key("Enter", key_width)
+        )),
+        Line::from(format!(
+            "{}  Insert newline (Alt+Enter also works)",
+            fmt_key("Shift+Enter", key_width)
+        )),
+        Line::from(format!(
+            "{}  Cancel draft and return to diff",
+            fmt_key("Esc", key_width)
+        )),
+        Line::from("  Previously saved note stays when cancelling."),
         Line::from("  Private notes are never saved or posted; copy them before leaving."),
         Line::from("  Notes clear when changing files or leaving the diff pane."),
         Line::from("  Help/input overlays and split/fullscreen switches preserve notes."),
@@ -1643,6 +1660,36 @@ mod tests {
         }
         assert!(joined.contains("Notes clear when changing files or leaving the diff pane"));
         assert!(joined.contains("never saved or posted"));
+    }
+
+    #[test]
+    fn temporary_note_help_explains_save_newline_and_cancel() {
+        let joined = build_help_lines(&KeybindingsConfig::default())
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let notes = joined
+            .split("  Temporary Note Input:")
+            .nth(1)
+            .expect("temporary note input section")
+            .split("Toggle markdown rich display")
+            .next()
+            .unwrap();
+
+        for (key, action) in [
+            ("Enter", "Save note in memory and return to diff"),
+            ("Shift+Enter", "Insert newline (Alt+Enter also works)"),
+            ("Esc", "Cancel draft and return to diff"),
+        ] {
+            assert!(
+                notes
+                    .lines()
+                    .any(|line| { line.trim_start().starts_with(key) && line.contains(action) }),
+                "missing temporary note help: {key}: {action}"
+            );
+        }
+        assert!(notes.contains("Previously saved note stays when cancelling"));
     }
 
     #[test]

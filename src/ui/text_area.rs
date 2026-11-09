@@ -471,6 +471,16 @@ impl TextArea {
         }
     }
 
+    pub(crate) fn insert_line_break(&mut self) {
+        let buffered = std::mem::take(&mut self.sequence_state.pending_keys);
+        self.sequence_state.clear();
+        for key in buffered {
+            self.insert_keybinding(&key);
+        }
+        self.insert_newline();
+        self.adjust_scroll();
+    }
+
     fn insert_newline(&mut self) {
         let line = &self.lines[self.cursor_row];
         let byte_idx = char_to_byte_index(line, self.cursor_col);

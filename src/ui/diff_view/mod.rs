@@ -1671,11 +1671,10 @@ pub fn render_text_input(frame: &mut Frame, app: &App) {
                 )
                 .wrap(Wrap { trim: false });
             frame.render_widget(context, chunks[1]);
-            render_text_input_area(
+            app.input_text_area.render_with_title(
                 frame,
-                app,
                 chunks[2],
-                "Temporary note · private · cleared on pane change",
+                "Temporary note · private (Enter: save, Shift+Enter: newline, Esc: cancel)",
                 "Write feedback for your local agent...",
             );
         }

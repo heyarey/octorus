@@ -791,6 +791,16 @@ Press `Shift+Enter` or `V` to enter multiline selection mode. Select a range of 
 
 Press `m` on a line or selected range to add a private note, or edit the note already attached to that exact range. Press `Y` before leaving the diff pane to copy all notes with their file paths, line ranges, and code context for a local agent. Notes are held only in memory and are never saved or posted to GitHub. They clear when the file or diff changes, or when you leave the diff pane; opening help or input overlays and switching between split and fullscreen views of the same file preserves them. The existing `c` command still creates a GitHub review comment in PR mode or a saved local comment in local mode.
 
+The temporary note composer uses these keys:
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Save the note in memory and return to the diff |
+| `Shift+Enter` / `Alt+Enter` | Insert a newline |
+| `Esc` | Discard the current draft and return to the diff; keep any previously saved note |
+
+Saving keeps a note only for the lifetime described above; use `Y` to export it before leaving. Comments, suggestions, and replies keep their existing `Ctrl+S` submit and `Enter` newline behavior.
+
 **Comment Panel (when focused):**
 
 | Key | Action |

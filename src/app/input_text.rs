@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
-use crossterm::event::{self, KeyEvent};
+use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers};
 use std::time::Instant;
 use tokio::sync::mpsc;
 
@@ -29,7 +29,25 @@ impl App {
             return Ok(());
         }
 
-        match self.input_text_area.input(key) {
+        let action = if matches!(self.input_mode, Some(InputMode::TemporaryComment(_))) {
+            match key.code {
+                KeyCode::Enter
+                    if key
+                        .modifiers
+                        .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) =>
+                {
+                    self.input_text_area.insert_line_break();
+                    TextAreaAction::Continue
+                }
+                KeyCode::Enter => TextAreaAction::Submit,
+                KeyCode::Esc => TextAreaAction::Cancel,
+                _ => self.input_text_area.input(key),
+            }
+        } else {
+            self.input_text_area.input(key)
+        };
+
+        match action {
             TextAreaAction::Submit => {
                 let content = self.input_text_area.content();
                 if content.trim().is_empty() {

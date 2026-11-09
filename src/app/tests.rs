@@ -9656,3 +9656,97 @@ fn private_review_does_not_save_feedback_against_changed_code() {
         .unwrap();
     assert_eq!(app.temporary_comments_text(), None);
 }
+
+#[tokio::test]
+async fn temporary_note_enter_saves_and_returns_to_diff() {
+    for state in [AppState::DiffView, AppState::SplitViewDiff] {
+        let mut app = make_app_with_patch("@@ -1 +1 @@\n-old\n+new");
+        app.state = state;
+        app.diff_scroll.selected_line = 2;
+        let mut terminal = test_terminal();
+        app.handle_key_event(
+            KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE),
+            &mut terminal,
+        )
+        .await
+        .unwrap();
+        app.input_text_area.set_content("Feedback 日本語");
+        let screen = render_screen(&mut app, 140, 30);
+        assert!(
+            screen.contains("Enter: save"),
+            "missing note save hint: {screen}"
+        );
+        app.handle_key_event(
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut terminal,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.state, state);
+        assert_eq!(app.temporary_comment_count(), 1);
+        assert!(app
+            .temporary_comments_text()
+            .unwrap()
+            .contains("Feedback 日本語"));
+        assert!(app.cmt.comment_submit_receiver.is_none());
+    }
+}
+
+#[tokio::test]
+async fn temporary_note_escape_discards_edit_and_preserves_saved_feedback() {
+    let mut app = make_app_with_patch("@@ -1 +1 @@\n-old\n+new");
+    app.state = AppState::DiffView;
+    app.diff_scroll.selected_line = 2;
+    app.enter_temporary_comment();
+    app.input_text_area.set_content("Saved feedback");
+    app.handle_text_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
+    app.enter_temporary_comment();
+    app.input_text_area.set_content("Discarded edit");
+    app.handle_text_input(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+        .unwrap();
+    assert_eq!(app.state, AppState::DiffView);
+    let exported = app.temporary_comments_text().unwrap();
+    assert!(exported.contains("Saved feedback"));
+    assert!(!exported.contains("Discarded edit"));
+}
+
+#[tokio::test]
+async fn temporary_note_modified_enter_inserts_newline_before_save() {
+    for modifiers in [KeyModifiers::SHIFT, KeyModifiers::ALT] {
+        let mut app = make_app_with_patch("@@ -1 +1 @@\n-old\n+new");
+        app.state = AppState::DiffView;
+        app.diff_scroll.selected_line = 2;
+        app.enter_temporary_comment();
+        app.input_text_area
+            .set_submit_key(crate::keybinding::KeySequence::single(
+                crate::keybinding::KeyBinding::named(crate::keybinding::NamedKey::Enter),
+            ));
+        for code in [KeyCode::Char('a'), KeyCode::Enter, KeyCode::Char('b')] {
+            let mods = if code == KeyCode::Enter {
+                modifiers
+            } else {
+                KeyModifiers::NONE
+            };
+            app.handle_text_input(KeyEvent::new(code, mods)).unwrap();
+        }
+        assert_eq!(app.state, AppState::TextInput);
+        assert_eq!(app.input_text_area.content(), "a\nb");
+        app.handle_text_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(app.state, AppState::DiffView);
+        assert!(app.temporary_comments_text().unwrap().contains("a\nb"));
+    }
+}
+
+#[test]
+fn temporary_note_empty_enter_cancels_without_creating_feedback() {
+    let mut app = make_app_with_patch("@@ -1 +1 @@\n-old\n+new");
+    app.state = AppState::DiffView;
+    app.diff_scroll.selected_line = 2;
+    app.enter_temporary_comment();
+    app.handle_text_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
+    assert_eq!(app.state, AppState::DiffView);
+    assert_eq!(app.temporary_comment_count(), 0);
+}
