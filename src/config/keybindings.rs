@@ -25,6 +25,11 @@ pub struct KeybindingsConfig {
     pub jump_back: KeySequence,
     pub next_comment: KeySequence,
     pub prev_comment: KeySequence,
+    pub copy_selection: KeySequence,
+    pub previous_hunk: KeySequence,
+    pub next_hunk: KeySequence,
+    pub temporary_comment: KeySequence,
+    pub copy_temporary_comments: KeySequence,
 
     pub approve: KeySequence,
     pub request_changes: KeySequence,
@@ -112,6 +117,11 @@ impl Default for KeybindingsConfig {
             jump_back: KeySequence::single(KeyBinding::ctrl('o')),
             next_comment: KeySequence::single(KeyBinding::char('n')),
             prev_comment: KeySequence::single(KeyBinding::char('N')),
+            copy_selection: KeySequence::single(KeyBinding::char('y')),
+            previous_hunk: KeySequence::single(KeyBinding::char('[')),
+            next_hunk: KeySequence::single(KeyBinding::char(']')),
+            temporary_comment: KeySequence::single(KeyBinding::char('m')),
+            copy_temporary_comments: KeySequence::single(KeyBinding::char('Y')),
 
             approve: KeySequence::single(KeyBinding::char('a')),
             request_changes: KeySequence::single(KeyBinding::char('r')),
@@ -209,6 +219,11 @@ impl KeybindingsConfig {
             ("jump_back", &self.jump_back),
             ("next_comment", &self.next_comment),
             ("prev_comment", &self.prev_comment),
+            ("copy_selection", &self.copy_selection),
+            ("previous_hunk", &self.previous_hunk),
+            ("next_hunk", &self.next_hunk),
+            ("temporary_comment", &self.temporary_comment),
+            ("copy_temporary_comments", &self.copy_temporary_comments),
             ("approve", &self.approve),
             ("request_changes", &self.request_changes),
             ("comment", &self.comment),
@@ -498,6 +513,14 @@ impl Serialize for KeybindingsConfig {
         map.serialize_entry("jump_back", &seq_to_value(&self.jump_back))?;
         map.serialize_entry("next_comment", &seq_to_value(&self.next_comment))?;
         map.serialize_entry("prev_comment", &seq_to_value(&self.prev_comment))?;
+        map.serialize_entry("copy_selection", &seq_to_value(&self.copy_selection))?;
+        map.serialize_entry("previous_hunk", &seq_to_value(&self.previous_hunk))?;
+        map.serialize_entry("next_hunk", &seq_to_value(&self.next_hunk))?;
+        map.serialize_entry("temporary_comment", &seq_to_value(&self.temporary_comment))?;
+        map.serialize_entry(
+            "copy_temporary_comments",
+            &seq_to_value(&self.copy_temporary_comments),
+        )?;
         map.serialize_entry("approve", &seq_to_value(&self.approve))?;
         map.serialize_entry("request_changes", &seq_to_value(&self.request_changes))?;
         map.serialize_entry("comment", &seq_to_value(&self.comment))?;
@@ -562,5 +585,82 @@ impl Serialize for KeybindingsConfig {
         map.serialize_entry("confirm_no", &seq_to_value(&self.confirm_no))?;
 
         map.end()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DIFF_BINDINGS: &[(&str, &str)] = &[
+        ("copy_selection", "y"),
+        ("previous_hunk", "["),
+        ("next_hunk", "]"),
+        ("temporary_comment", "m"),
+        ("copy_temporary_comments", "Y"),
+    ];
+
+    #[test]
+    fn diff_review_bindings_have_defaults_and_roundtrip() {
+        let config = KeybindingsConfig::default();
+        let serialized = toml::to_string(&config).unwrap();
+        let values: toml::Table = toml::from_str(&serialized).unwrap();
+        for (name, expected) in DIFF_BINDINGS {
+            assert_eq!(
+                values.get(*name).and_then(toml::Value::as_str),
+                Some(*expected),
+                "unexpected default for {name}"
+            );
+        }
+        assert!(config.validate().is_ok());
+        let parsed: KeybindingsConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(toml::to_string(&parsed).unwrap(), serialized);
+    }
+
+    #[test]
+    fn diff_review_bindings_can_be_customized() {
+        for (name, _) in DIFF_BINDINGS {
+            let config: KeybindingsConfig = toml::from_str(&format!("{name} = \"x\"\n")).unwrap();
+            let serialized = toml::to_string(&config).unwrap();
+            let values: toml::Table = toml::from_str(&serialized).unwrap();
+            assert_eq!(
+                values.get(*name).and_then(toml::Value::as_str),
+                Some("x"),
+                "custom binding was lost for {name}"
+            );
+            assert!(config.validate().is_ok(), "{name} should accept x");
+        }
+    }
+
+    #[test]
+    fn diff_review_bindings_reject_navigation_and_prefix_conflicts() {
+        for (name, _) in DIFF_BINDINGS {
+            for binding in ["j", "g"] {
+                let config: KeybindingsConfig =
+                    toml::from_str(&format!("{name} = \"{binding}\"\n")).unwrap();
+                let errors = config.validate().unwrap_err();
+                assert!(
+                    errors.iter().any(|error| error.contains(*name)),
+                    "conflict for {name} using {binding} was not reported: {errors:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn diff_review_bindings_reject_each_other() {
+        for (index, (first, _)) in DIFF_BINDINGS.iter().enumerate() {
+            for (second, _) in &DIFF_BINDINGS[index + 1..] {
+                let source = format!("{first} = \"x\"\n{second} = \"x\"\n");
+                let config: KeybindingsConfig = toml::from_str(&source).unwrap();
+                let errors = config.validate().unwrap_err();
+                assert!(
+                    errors
+                        .iter()
+                        .any(|error| error.contains(*first) && error.contains(*second)),
+                    "diff actions must not share a key: {first}, {second}: {errors:?}"
+                );
+            }
+        }
     }
 }

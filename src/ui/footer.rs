@@ -7,6 +7,17 @@ use ratatui::{
 use crate::app::{App, ShellPhase};
 use crate::config::KeybindingsConfig;
 
+pub fn footer_hint_diff(kb: &KeybindingsConfig) -> String {
+    format!(
+        "{}/{} Hunk | {} Copy | {} Note | {} Copy notes",
+        kb.previous_hunk.display(),
+        kb.next_hunk.display(),
+        kb.copy_selection.display(),
+        kb.temporary_comment.display(),
+        kb.copy_temporary_comments.display(),
+    )
+}
+
 pub fn footer_hint_back(kb: &KeybindingsConfig) -> String {
     format!(
         "{} Help | {} Shell | {} Back",
@@ -302,6 +313,24 @@ mod tests {
         app.set_pending_approve_body_for_test(None);
         let normal_line = build_footer_line(&app, HELP);
         assert_eq!(line_to_string(&normal_line), HELP);
+    }
+
+    #[test]
+    fn diff_footer_hint_shows_configured_review_commands() {
+        let kb: KeybindingsConfig = toml::from_str(
+            r#"
+            copy_selection = "x"
+            previous_hunk = "p"
+            next_hunk = "f"
+            temporary_comment = "e"
+            copy_temporary_comments = "E"
+            "#,
+        )
+        .unwrap();
+        assert_snapshot!(
+            footer_hint_diff(&kb),
+            @"p/f Hunk | x Copy | e Note | E Copy notes"
+        );
     }
 
     #[test]

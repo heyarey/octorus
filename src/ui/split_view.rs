@@ -342,7 +342,7 @@ fn render_diff_pane_normal(
 
     let footer_text_owned;
     let footer_text = if attention.has_keys() {
-        footer_text_owned = super::footer::footer_hint_back(&app.config.keybindings);
+        footer_text_owned = super::footer::footer_hint_diff(&app.config.keybindings);
         footer_text_owned.as_str()
     } else {
         "Enter/→: focus diff"
@@ -482,7 +482,7 @@ fn render_diff_header(
     attention: Attention,
     theme: Theme,
 ) {
-    let header_text = app
+    let mut header_text = app
         .files()
         .get(app.selected_file)
         .map(|file| {
@@ -492,6 +492,13 @@ fn render_diff_header(
             )
         })
         .unwrap_or_else(|| "No file selected".to_string());
+
+    if app.temporary_comment_count() > 0 {
+        header_text.push_str(&format!(
+            " | {} temporary notes",
+            app.temporary_comment_count()
+        ));
+    }
 
     let header = Paragraph::new(header_text).block(pane_block(
         theme,
@@ -513,6 +520,7 @@ fn render_diff_body(
 ) {
     let visible_height = area.height.saturating_sub(2) as usize;
     app.diff_scroll.set_visible_lines(visible_height);
+    let comment_lines = app.diff_comment_lines();
     let (lines, scroll_row, first_line) = if let Some(ref cache) = app.diff_store.current {
         let line_count = cache.lines.len();
         // Slice from scroll_offset, bounded to visible viewport + buffer for wrap handling.
@@ -527,7 +535,7 @@ fn render_diff_body(
             cache,
             start..end,
             app.diff_scroll.selected_line,
-            &app.cmt.file_comment_lines,
+            &comment_lines,
             app.config.diff.bg_color,
             multiline_range,
             area.width.saturating_sub(2),

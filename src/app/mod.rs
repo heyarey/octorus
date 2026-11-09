@@ -54,6 +54,8 @@ mod input_browse;
 mod input_diff;
 mod input_mouse;
 mod input_text;
+mod temporary_review;
+pub use temporary_review::TemporaryComment;
 mod issue_detail;
 mod issue_list;
 mod key_sequence;
@@ -152,6 +154,7 @@ pub struct App {
     pub diff_scroll: DiffScrollState,
     /// 複数行選択モードの状態（None = 非選択モード）
     pub multiline_selection: Option<MultilineSelection>,
+    temporary_review: temporary_review::TemporaryReview,
     /// 統一入力モード
     pub input_mode: Option<InputMode>,
     /// 統一入力テキストエリア
@@ -290,6 +293,7 @@ impl App {
             file_list_scroll_offset: 0,
             diff_scroll: DiffScrollState::new(ScrollMode::Margin),
             multiline_selection: None,
+            temporary_review: temporary_review::TemporaryReview::default(),
             input_mode: None,
             input_text_area: TextArea::with_submit_key(submit_key),
             config,

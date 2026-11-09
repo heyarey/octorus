@@ -45,6 +45,7 @@ macro_rules! define_state_filter {
 
 mod issue;
 mod pr;
+pub use pr::hydrate_pr_files;
 
 pub use blame::{
     blame_argv, blame_file, parse_porcelain, BlameError, BlameFile, BlameRef, BLAME_LINE_BYTES,

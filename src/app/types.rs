@@ -135,6 +135,7 @@ pub struct LineInputContext {
 /// Unified input mode.
 #[derive(Debug, Clone)]
 pub enum InputMode {
+    TemporaryComment(super::TemporaryComment),
     Comment(LineInputContext),
     Suggestion {
         context: LineInputContext,

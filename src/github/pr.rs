@@ -147,6 +147,157 @@ pub async fn fetch_changed_files(repo: &str, pr_number: u32) -> Result<Vec<Chang
     serde_json::from_value(json).context("Failed to parse changed files response")
 }
 
+pub async fn hydrate_pr_files(repo: &str, pr: &PullRequest, files: &mut [ChangedFile]) {
+    for window in files.chunks_mut(64) {
+        let mut tasks = tokio::task::JoinSet::new();
+        for (index, batch) in window.chunks(8).enumerate() {
+            let repo = repo.to_owned();
+            let sha = pr.head.sha.clone();
+            let batch = batch.to_vec();
+            tasks.spawn(async move {
+                let result = hydrate_pr_batch(&repo, &sha, batch).await;
+                (index * 8, result)
+            });
+        }
+        while let Some(task) = tasks.join_next().await {
+            match task {
+                Ok((offset, Ok(patches))) => {
+                    for (index, patch) in patches.into_iter().enumerate() {
+                        let file = &mut window[offset + index];
+                        match patch {
+                            Ok(patch) => file.patch = Some(patch),
+                            Err(error) => {
+                                tracing::warn!(filename = %file.filename, %error, "Full-file PR context unavailable")
+                            }
+                        }
+                    }
+                }
+                Ok((_, Err(error))) => tracing::warn!(%error, "PR context batch failed"),
+                Err(error) => tracing::warn!(%error, "PR context task failed"),
+            }
+        }
+    }
+}
+
+async fn hydrate_pr_batch(
+    repo: &str,
+    sha: &str,
+    files: Vec<ChangedFile>,
+) -> Result<Vec<Result<String>>> {
+    let mut contents = fetch_blob_texts(repo, sha, &files).await;
+    tokio::task::spawn_blocking(move || {
+        files
+            .iter()
+            .enumerate()
+            .map(|(index, file)| {
+                let head = if file.status == "removed" {
+                    Ok(String::new())
+                } else {
+                    match &mut contents {
+                        Ok(blobs) => parse_blob_text(blobs[format!("file_{index}")].take()),
+                        Err(error) => Err(anyhow::anyhow!(error.to_string())),
+                    }
+                };
+                head.and_then(|head| patch_with_full_context(file, &head))
+            })
+            .collect()
+    })
+    .await
+    .context("Full-file context task failed")
+}
+
+fn patch_with_full_context(file: &ChangedFile, head: &str) -> Result<String> {
+    let mut patch = file.patch.clone().unwrap_or_default();
+    if patch.is_empty() && file.status == "added" && !head.contains('\0') {
+        let count = head.lines().count();
+        if count != file.additions as usize {
+            anyhow::bail!("Added-file contents do not match PR patch statistics");
+        }
+        patch = format!("@@ -0,0 +{},{count} @@", usize::from(count > 0));
+        for line in head.lines() {
+            patch.push_str("\n+");
+            patch.push_str(line);
+        }
+    }
+    let mut additions = 0;
+    let mut deletions = 0;
+    let mut classifier = crate::diff::PatchClassifier::new();
+    for line in patch.lines() {
+        match classifier.classify(line).0 {
+            crate::diff::LineType::Added => additions += 1,
+            crate::diff::LineType::Removed => deletions += 1,
+            _ => {}
+        }
+    }
+    if additions != file.additions || deletions != file.deletions {
+        anyhow::bail!("PR patch is incomplete; preserving the original patch");
+    }
+    crate::diff::expand_full_context(&patch, head)
+        .context("PR patch does not match the exact head contents")
+}
+
+fn blob_batch_query(sha: &str, files: &[ChangedFile]) -> (String, Vec<(String, String)>) {
+    let mut variables = String::from("$owner: String!, $name: String!");
+    let mut selections = String::new();
+    let mut expressions = Vec::new();
+    for (index, file) in files.iter().enumerate() {
+        if file.status == "removed" {
+            continue;
+        }
+        let key = format!("file_{index}");
+        variables.push_str(&format!(", ${key}: String!"));
+        selections.push_str(&format!(
+            "{key}: object(expression: ${key}) {{ ... on Blob {{ text isBinary byteSize }} }} "
+        ));
+        expressions.push((key, format!("{sha}:{}", file.filename)));
+    }
+    (
+        format!(
+            "query({variables}) {{ repository(owner: $owner, name: $name) {{ {selections} }} }}"
+        ),
+        expressions,
+    )
+}
+
+async fn fetch_blob_texts(
+    repo: &str,
+    sha: &str,
+    files: &[ChangedFile],
+) -> Result<serde_json::Value> {
+    let (query, expressions) = blob_batch_query(sha, files);
+    if expressions.is_empty() {
+        return Ok(serde_json::json!({}));
+    }
+    let (owner, name) = repo.split_once('/').context("Invalid repository name")?;
+    let mut fields = vec![
+        ("owner", FieldValue::String(owner)),
+        ("name", FieldValue::String(name)),
+    ];
+    fields.extend(
+        expressions
+            .iter()
+            .map(|(key, expression)| (key.as_str(), FieldValue::String(expression))),
+    );
+    let mut response = gh_api_graphql(&query, &fields).await?;
+    check_graphql_errors(&response)?;
+    let blobs = response["data"]["repository"].take();
+    if !blobs.is_object() {
+        anyhow::bail!("Repository file contents unavailable");
+    }
+    Ok(blobs)
+}
+
+fn parse_blob_text(blob: serde_json::Value) -> Result<String> {
+    if blob["isBinary"].as_bool() != Some(false) {
+        anyhow::bail!("File is binary or no text blob is available");
+    }
+    let text = blob["text"].as_str().context("File contents unavailable")?;
+    if blob["byteSize"].as_u64() != Some(text.len() as u64) {
+        anyhow::bail!("File contents were truncated");
+    }
+    Ok(text.to_owned())
+}
+
 pub async fn submit_review(
     repo: &str,
     pr_number: u32,
@@ -391,6 +542,83 @@ pub async fn fetch_pr_checks(repo: &str, pr_number: u32) -> Result<Vec<CheckItem
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pr_blob_batch_uses_exact_revision_variables_and_skips_removed_paths() {
+        let file = |filename: &str, status: &str| super::ChangedFile {
+            filename: filename.into(),
+            status: status.into(),
+            additions: 0,
+            deletions: 0,
+            patch: None,
+            viewed: false,
+        };
+        let (query, expressions) = super::blob_batch_query(
+            "exact-head",
+            &[
+                file("renamed.rs", "renamed"),
+                file("deleted.rs", "removed"),
+                file("quote\"終.rs", "added"),
+            ],
+        );
+        assert_eq!(
+            expressions,
+            vec![
+                ("file_0".into(), "exact-head:renamed.rs".into()),
+                ("file_2".into(), "exact-head:quote\"終.rs".into())
+            ]
+        );
+        assert!(query.contains("file_0: object(expression: $file_0)"));
+        assert!(query.contains("file_2: object(expression: $file_2)"));
+        assert!(!query.contains("file_1"));
+        assert!(
+            !query.contains("renamed.rs"),
+            "paths belong in GraphQL variables"
+        );
+    }
+
+    #[test]
+    fn exact_blob_response_rejects_binary_and_truncated_text() {
+        use super::parse_blob_text;
+        let response = |text: serde_json::Value, binary: bool, size: u64| {
+            serde_json::json!({
+                "text": text, "isBinary": binary, "byteSize": size
+            })
+        };
+        assert_eq!(
+            parse_blob_text(response("終\n".into(), false, 4)).unwrap(),
+            "終\n"
+        );
+        assert!(parse_blob_text(response(serde_json::Value::Null, true, 4)).is_err());
+        assert!(parse_blob_text(response("short".into(), false, 50)).is_err());
+    }
+
+    #[test]
+    fn full_context_preserves_patch_counts_and_handles_missing_added_file_patch() {
+        use super::{patch_with_full_context, ChangedFile};
+        let mut file = ChangedFile {
+            filename: "new.rs".into(),
+            status: "added".into(),
+            additions: 2,
+            deletions: 0,
+            patch: None,
+            viewed: false,
+        };
+        insta::assert_snapshot!(patch_with_full_context(&file, "one\ntwo\n").unwrap(), @r"
+        @@ -0,0 +1,2 @@
+        +one
+        +two
+        ");
+        file.status = "modified".into();
+        assert!(patch_with_full_context(&file, "one\ntwo\n").is_err());
+        file.patch = Some("@@ -1 +1 @@\n-old\n+one".into());
+        assert!(patch_with_full_context(&file, "one\ntwo\n").is_err());
+        file.additions = 1;
+        file.deletions = 1;
+        assert!(patch_with_full_context(&file, "one\ntwo\n")
+            .unwrap()
+            .ends_with(" two"));
+    }
+
     use super::*;
 
     #[test]

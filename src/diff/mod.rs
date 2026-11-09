@@ -9,6 +9,9 @@
 use std::collections::HashMap;
 use tracing::warn;
 
+mod full_context;
+pub use full_context::expand_full_context;
+
 /// Represents the type of a line in a diff patch
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineType {
@@ -409,6 +412,7 @@ impl PatchClassifier {
             return (LineType::Header, line);
         }
         if line.starts_with("index ")
+            || line == "\\ No newline at end of file"
             || (self.before_hunk && (line.starts_with("+++") || line.starts_with("---")))
         {
             return (LineType::Meta, line);
@@ -978,7 +982,7 @@ Binary files /dev/null and b/image.png differ
     }
 
     #[test]
-    fn test_patch_classifier_no_newline_marker_stays_context() {
+    fn test_patch_classifier_no_newline_marker_preserves_file_line_numbers() {
         let patch = concat!(
             "@@ -1,2 +1,3 @@\n",
             " keep\n",
@@ -993,14 +997,19 @@ Binary files /dev/null and b/image.png differ
                 (LineType::Header, "@@ -1,2 +1,3 @@".to_string()),
                 (LineType::Context, "keep".to_string()),
                 (LineType::Removed, "-- x".to_string()),
-                (
-                    LineType::Context,
-                    "\\ No newline at end of file".to_string()
-                ),
+                (LineType::Meta, "\\ No newline at end of file".to_string()),
                 (LineType::Added, "++y".to_string()),
                 (LineType::Context, "after".to_string()),
             ]
         );
+        let index = PatchIndex::build(patch);
+        for (row, expected) in [(4, 2), (5, 3)] {
+            assert_eq!(index.get(row).unwrap().new_line_number, Some(expected));
+            assert_eq!(
+                get_line_info(patch, row).unwrap().new_line_number,
+                Some(expected)
+            );
+        }
     }
 
     #[test]

@@ -1048,6 +1048,7 @@ impl App {
                 }
             }
         }
+        self.reconcile_temporary_review();
     }
 
     /// base シグネチャ（patch 除外）: Phase 1 での構造変更検出用

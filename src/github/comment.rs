@@ -103,21 +103,19 @@ pub async fn create_review_comment(
     pr_number: u32,
     commit_id: &str,
     path: &str,
-    position: u32,
+    line: u32,
     body: &str,
 ) -> Result<ReviewComment> {
     let endpoint = format!("repos/{}/pulls/{}/comments", repo, pr_number);
-    let position_str = position.to_string();
-    // NOTE: line/side/subject_type は Pull Request Review の一部としてのみ有効。
-    // 単体コメント API (POST /pulls/{n}/comments) では oneOf スキーマに合致せず 422 になる。
-    // position パラメータ（patch 内オフセット）を使用する。
+    let line_str = line.to_string();
     let json = gh_api_post(
         &endpoint,
         &[
             ("body", FieldValue::String(body)),
             ("commit_id", FieldValue::String(commit_id)),
             ("path", FieldValue::String(path)),
-            ("position", FieldValue::Raw(&position_str)),
+            ("line", FieldValue::Raw(&line_str)),
+            ("side", FieldValue::String("RIGHT")),
         ],
     )
     .await?;

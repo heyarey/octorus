@@ -285,6 +285,11 @@ impl App {
 
         let kb = self.config.keybindings.clone();
 
+        if self.pending_keys.is_empty() && self.handle_private_review_key(&key, visible_lines).await
+        {
+            return Ok(());
+        }
+
         if self.multiline_selection.is_some() {
             if self.matches_single_key(&key, &kb.move_down) {
                 if self.diff_scroll.line_count > 0 {

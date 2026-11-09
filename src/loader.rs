@@ -132,7 +132,7 @@ pub async fn fetch_local_diffs_batched(
 
     // tracked ファイルをバッチで処理
     for batch in filenames.chunks(batch_size) {
-        let mut args = vec!["diff", "HEAD", "--"];
+        let mut args = vec!["diff", "--unified=2147483647", "HEAD", "--"];
         let batch_strs: Vec<&str> = batch.iter().map(|s| s.as_str()).collect();
         args.extend(&batch_strs);
 
@@ -240,6 +240,8 @@ async fn fetch_and_send(repo: &str, pr_number: u32, tx: mpsc::Sender<DataLoadRes
                     }
                 }
             }
+
+            github::hydrate_pr_files(repo, &pr, &mut files).await;
 
             let _ = tx
                 .send(DataLoadResult::Success {
@@ -533,7 +535,11 @@ fn parse_path_list(output: &str) -> Vec<String> {
 }
 
 async fn run_git_diff_file(working_dir: Option<&str>, filename: &str) -> Result<String> {
-    run_git_command(working_dir, &["diff", "HEAD", "--", filename]).await
+    run_git_command(
+        working_dir,
+        &["diff", "--unified=2147483647", "HEAD", "--", filename],
+    )
+    .await
 }
 
 async fn run_git_untracked(working_dir: Option<&str>) -> Result<String> {
@@ -546,6 +552,7 @@ async fn run_git_no_index_diff(working_dir: Option<&str>, filename: &str) -> Res
     command.args(["-c", "core.quotePath=false"]);
     command.args([
         "diff",
+        "--unified=2147483647",
         "--no-ext-diff",
         "--no-color",
         "--no-index",
@@ -771,6 +778,47 @@ mod tests {
         // 2段階ロードでは patch は None（バッチロードで後から取得）
         assert!(new_file.patch.is_none());
         assert_eq!(new_file.status, "added");
+    }
+
+    #[tokio::test]
+    async fn local_diff_loaders_include_context_far_from_every_change() {
+        let fixture = tempdir().unwrap();
+        let workdir = fixture.path();
+        run_git(
+            &mut Command::new("git"),
+            workdir,
+            &["init", "-b", "main"],
+            "init",
+        );
+        let original = (1..=1200)
+            .map(|line| format!("line {line}\n"))
+            .collect::<String>();
+        write_file(&workdir.join("large.txt"), &original);
+        run_git(&mut Command::new("git"), workdir, &["add", "."], "add");
+        run_git(
+            &mut Command::new("git"),
+            workdir,
+            &["commit", "-m", "initial"],
+            "commit",
+        );
+        write_file(
+            &workdir.join("large.txt"),
+            &original.replace("line 600\n", "changed 600\n"),
+        );
+        let working_dir = Some(workdir.to_string_lossy().to_string());
+        let (single_tx, mut single_rx) = mpsc::channel(1);
+        fetch_single_file_diff(working_dir.clone(), "large.txt".into(), false, single_tx).await;
+        let single_patch = single_rx.recv().await.unwrap().patch.unwrap();
+        let (batch_tx, mut batch_rx) = mpsc::channel(1);
+        fetch_local_diffs_batched(working_dir, vec!["large.txt".into()], vec![], 10, batch_tx)
+            .await;
+        let batch_patch = batch_rx.recv().await.unwrap().pop().unwrap().patch.unwrap();
+        for patch in [single_patch, batch_patch] {
+            assert!(patch.contains("\n line 1\n"));
+            assert!(patch.ends_with(" line 1200") || patch.ends_with(" line 1200\n"));
+            assert!(patch.contains("\n-line 600\n+changed 600\n"));
+            assert!(diff::find_diff_line_index(&patch, diff::SideLine::right(1200)).is_some());
+        }
     }
 
     #[tokio::test]

@@ -5,6 +5,7 @@
 pub mod ai;
 pub mod app;
 pub mod cache;
+pub(crate) mod clipboard;
 pub mod code_index;
 pub mod config;
 pub mod diff;

@@ -153,7 +153,10 @@ The module graph supports Rust, TypeScript, TSX, JavaScript, and JSX. JavaScript
 - Syntax highlighting powered by tree-sitter
 - Inline comments and code suggestions on specific lines
 - Readline-style editing keys (`Ctrl-A/E/B/F/P/N/D/H/K/U/W`) inside the comment / reply / suggestion text input
-- Multiline selection mode (`Shift+Enter`) for range comments and suggestions
+- Full-file diff context with `[` / `]` jumps between change hunks
+- Copy the current line or multiline selection with `y`
+- Private temporary notes (`m`) with context-rich clipboard export (`Y`) for a local agent
+- Multiline selection mode (`Shift+Enter` / `V`) for copying, notes, range comments, and suggestions
 - Show Comment List for Review Comments and Discussions
 - Review submission (Approve / Request Changes / Comment)
 - Mark files and directories as viewed
@@ -190,6 +193,7 @@ The module graph supports Rust, TypeScript, TSX, JavaScript, and JSX. JavaScript
 
 - Preview uncommitted changes (`git diff HEAD`) without creating a PR
 - Real-time file watching — diff refreshes automatically on save (ignoring `.git/` internals)
+- Full-file diff context, with `[` / `]` jumping to the previous / next change hunk
 - Auto-focus mode (`--auto-focus` or `F` key) — automatically selects the most recently changed file
 - **Local comments** — leave review comments on your own diff, persisted to disk across sessions
 - Header shows `[LOCAL]` or `[LOCAL AF]` when auto-focus is active
@@ -723,6 +727,10 @@ The split view shows the file list (left) and a diff preview (right). The defaul
 | `PageUp` | Scroll diff page up (regardless of focused pane) |
 | `n` | Jump to next comment |
 | `N` | Jump to previous comment |
+| `[` / `]` | Jump to previous / next change hunk |
+| `y` | Copy current line or selected range |
+| `m` | Add a private temporary note to the current line or range |
+| `Y` | Copy temporary notes with file, line, and code context |
 | `c` | Add comment at line |
 | `s` | Add suggestion at line |
 | `Shift+Enter` | Enter multiline selection mode |
@@ -732,6 +740,8 @@ The split view shows the file list (left) and a diff preview (right). The defaul
 | `q` | Back to file list |
 
 ### Diff View
+
+Local and PR diffs always show the full file context. Use `[` / `]` to move between change hunks.
 
 | Key | Action |
 |-----|--------|
@@ -743,6 +753,10 @@ The split view shows the file list (left) and a diff preview (right). The defaul
 | `Ctrl-o` | Jump back |
 | `n` | Jump to next comment |
 | `N` | Jump to previous comment |
+| `[` / `]` | Jump to previous / next change hunk |
+| `y` | Copy current line or selected range |
+| `m` | Add a private temporary note to the current line or range |
+| `Y` | Copy temporary notes with file, line, and code context |
 | `Ctrl-d` | Page down |
 | `Ctrl-u` | Page up |
 | `PageDown` | Scroll diff page down |
@@ -760,7 +774,7 @@ The split view shows the file list (left) and a diff preview (right). The defaul
 
 **Multiline Selection Mode:**
 
-Press `Shift+Enter` to enter multiline selection mode. Select a range of lines, then create a comment or suggestion spanning the entire range.
+Press `Shift+Enter` or `V` to enter multiline selection mode. Select a range of lines, then copy it, add a private temporary note, or create a comment or suggestion spanning the entire range.
 
 | Key | Action |
 |-----|--------|
@@ -768,7 +782,14 @@ Press `Shift+Enter` to enter multiline selection mode. Select a range of lines, 
 | `k` / `↑` | Extend selection up |
 | `Enter` / `c` | Comment on selection |
 | `s` | Suggest on selection |
+| `y` | Copy selected lines |
+| `m` | Add a private temporary note on the selection |
+| `Y` | Copy temporary notes with file, line, and code context |
 | `Esc` | Cancel selection |
+
+**Private temporary notes:**
+
+Press `m` on a line or selected range to add a private note, or edit the note already attached to that exact range. Press `Y` before leaving the diff pane to copy all notes with their file paths, line ranges, and code context for a local agent. Notes are held only in memory and are never saved or posted to GitHub. They clear when the file or diff changes, or when you leave the diff pane; opening help or input overlays and switching between split and fullscreen views of the same file preserves them. The existing `c` command still creates a GitHub review comment in PR mode or a saved local comment in local mode.
 
 **Comment Panel (when focused):**
 
@@ -1090,6 +1111,11 @@ go_to_definition = ["g", "d"]
 | `go_to_definition` | `gd` | Go to definition |
 | `go_to_file` | `gf` | Open file in $EDITOR |
 | `multiline_select` | `V` | Enter multiline selection mode |
+| `copy_selection` | `y` | Copy current line or selected range |
+| `previous_hunk` | `[` | Jump to previous change hunk |
+| `next_hunk` | `]` | Jump to next change hunk |
+| `temporary_comment` | `m` | Add a private temporary note to the current line or range |
+| `copy_temporary_comments` | `Y` | Copy temporary notes with file, line, and code context |
 | `tree_toggle` | `t` | Toggle file tree view |
 | **Repository Browser** |||
 | `repo_browse` | `b` | Open the Repository Browser |

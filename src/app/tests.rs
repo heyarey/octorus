@@ -5387,7 +5387,7 @@ fn left_comment_marks_the_removed_line_in_diff_and_split_view() {
     ┃                                                                                                  ┃
     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
     ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-    │? Help | ! Shell | q/Esc Back                                                                     │
+    │[/] Hunk | y Copy | m Note | Y Copy notes                                                         │
     └──────────────────────────────────────────────────────────────────────────────────────────────────┘
     ");
 
@@ -5426,7 +5426,7 @@ fn left_comment_marks_the_removed_line_in_diff_and_split_view() {
     │                                        │┃                                                                            ┃
     └────────────────────────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
     ┌────────────────────────────────────────┐┌────────────────────────────────────────────────────────────────────────────┐
-    │←/h: focus files                        ││? Help | ! Shell | q/Esc Back                                               │
+    │←/h: focus files                        ││[/] Hunk | y Copy | m Note | Y Copy notes                                   │
     └────────────────────────────────────────┘└────────────────────────────────────────────────────────────────────────────┘
     ");
 }
@@ -9501,4 +9501,158 @@ fn test_toggle_mouse_key_ignored_when_disabled_in_config() {
 
     assert!(!app.handle_toggle_mouse_key(&f2));
     assert!(!app.mouse_capture_active);
+}
+
+#[test]
+fn private_review_copies_code_without_diff_prefixes() {
+    let mut app = make_app_with_patch("@@ -1,3 +1,3 @@\n context\n-old\n+日本語\n tail");
+    app.diff_scroll.selected_line = 3;
+    assert_eq!(app.selected_diff_text().as_deref(), Some("日本語\n"));
+    app.multiline_selection = Some(MultilineSelection {
+        anchor_line: 3,
+        cursor_line: 1,
+    });
+    assert_eq!(
+        app.selected_diff_text().as_deref(),
+        Some("context\nold\n日本語\n")
+    );
+    app.multiline_selection = None;
+    app.diff_scroll.selected_line = 0;
+    assert_eq!(app.selected_diff_text(), None);
+}
+
+#[tokio::test]
+async fn private_review_hunk_shortcuts_visit_change_blocks_in_full_file() {
+    let mut app =
+        make_app_with_patch("@@ -1,5 +1,5 @@\n first\n-old\n+new\n middle\n-old2\n+new2\n last");
+    app.state = AppState::DiffView;
+    app.diff_scroll.line_count = 8;
+    let mut terminal = test_terminal();
+    for (key, expected) in [(']', 2), (']', 5), ('j', 6), ('[', 2), ('[', 2)] {
+        app.handle_key_event(
+            KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
+            &mut terminal,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.diff_scroll.selected_line, expected, "key {key}");
+    }
+}
+
+#[tokio::test]
+async fn private_review_notes_export_with_context_and_never_submit() {
+    let mut app = make_app_with_patch("@@ -1,3 +1,3 @@\n before\n-old\n+new\n after");
+    app.state = AppState::SplitViewDiff;
+    app.diff_scroll.line_count = 5;
+    app.diff_scroll.selected_line = 2;
+    let mut terminal = test_terminal();
+    app.handle_key_event(
+        KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE),
+        &mut terminal,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        app.input_mode,
+        Some(InputMode::TemporaryComment(_))
+    ));
+    app.input_text_area
+        .set_content("Please explain this removal.");
+    app.handle_key_event(
+        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        &mut terminal,
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.state, AppState::SplitViewDiff);
+    assert_eq!(app.temporary_comment_count(), 1);
+    assert!(app.cmt.comment_submit_receiver.is_none());
+    assert!(app.cmt.review_comments.is_none());
+    let exported = app.temporary_comments_text().unwrap();
+    for expected in [
+        "test.rs",
+        "old line 2",
+        "before",
+        "-old",
+        "+new",
+        "after",
+        "Please explain this removal.",
+        "abc123",
+    ] {
+        assert!(
+            exported.contains(expected),
+            "missing {expected} in {exported}"
+        );
+    }
+    app.handle_key_event(
+        KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE),
+        &mut terminal,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.input_text_area.content(),
+        "Please explain this removal."
+    );
+    app.input_text_area.set_content("Keep this line.");
+    app.handle_key_event(
+        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        &mut terminal,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.temporary_comment_count(),
+        1,
+        "editing must replace the existing note"
+    );
+    app.handle_key_event(
+        KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
+        &mut terminal,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.temporary_comment_count(),
+        0,
+        "leaving the pane clears notes"
+    );
+    assert_eq!(app.temporary_comments_text(), None);
+}
+
+#[test]
+fn private_review_notes_clear_when_file_or_revision_changes() {
+    for change_patch in [false, true] {
+        let mut app = make_app_with_patch("@@ -1 +1 @@\n-old\n+new");
+        app.state = AppState::DiffView;
+        app.diff_scroll.selected_line = 2;
+        app.enter_temporary_comment();
+        app.input_text_area.set_content("Feedback");
+        app.handle_text_input(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL))
+            .unwrap();
+        if let DataState::Loaded { files, .. } = &mut app.data_state {
+            if change_patch {
+                files[0].patch = Some("@@ -1 +1 @@\n-old\n+changed".into());
+            } else {
+                files[0].filename = "other.rs".into();
+            }
+        }
+        app.reconcile_temporary_review();
+        assert_eq!(app.temporary_comment_count(), 0);
+    }
+}
+
+#[test]
+fn private_review_does_not_save_feedback_against_changed_code() {
+    let mut app = make_app_with_patch("@@ -1 +1 @@\n-old\n+new");
+    app.state = AppState::DiffView;
+    app.diff_scroll.selected_line = 2;
+    app.enter_temporary_comment();
+    if let DataState::Loaded { files, .. } = &mut app.data_state {
+        files[0].patch = Some("@@ -1 +1 @@\n-old\n+changed".into());
+    }
+    app.input_text_area.set_content("Stale feedback");
+    app.handle_text_input(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL))
+        .unwrap();
+    assert_eq!(app.temporary_comments_text(), None);
 }

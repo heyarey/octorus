@@ -287,7 +287,9 @@ impl App {
         };
         if !matches!(
             line_info.line_type,
-            crate::diff::LineType::Added | crate::diff::LineType::Context
+            crate::diff::LineType::Added
+                | crate::diff::LineType::Removed
+                | crate::diff::LineType::Context
         ) {
             return;
         }

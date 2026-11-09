@@ -723,6 +723,25 @@ fn build_help_lines(kb: &KeybindingsConfig) -> Vec<Line<'static>> {
             )
         )),
         Line::from(format!(
+            "{}  Previous/next change hunk",
+            fmt_key(
+                &format!("{}/{}", kb.previous_hunk.display(), kb.next_hunk.display()),
+                key_width
+            )
+        )),
+        Line::from(format!(
+            "{}  Copy line or selection",
+            fmt_key(&kb.copy_selection.display(), key_width)
+        )),
+        Line::from(format!(
+            "{}  Add private temporary note",
+            fmt_key(&kb.temporary_comment.display(), key_width)
+        )),
+        Line::from(format!(
+            "{}  Copy temporary notes with code context",
+            fmt_key(&kb.copy_temporary_comments.display(), key_width)
+        )),
+        Line::from(format!(
             "{}  Open comment panel",
             fmt_key(&kb.open_panel.display(), key_width)
         )),
@@ -788,6 +807,25 @@ fn build_help_lines(kb: &KeybindingsConfig) -> Vec<Line<'static>> {
             fmt_key(&kb.prev_comment.display(), key_width)
         )),
         Line::from(format!(
+            "{}  Previous/next change hunk",
+            fmt_key(
+                &format!("{}/{}", kb.previous_hunk.display(), kb.next_hunk.display()),
+                key_width
+            )
+        )),
+        Line::from(format!(
+            "{}  Copy line or selection",
+            fmt_key(&kb.copy_selection.display(), key_width)
+        )),
+        Line::from(format!(
+            "{}  Add private temporary note",
+            fmt_key(&kb.temporary_comment.display(), key_width)
+        )),
+        Line::from(format!(
+            "{}  Copy temporary notes with code context",
+            fmt_key(&kb.copy_temporary_comments.display(), key_width)
+        )),
+        Line::from(format!(
             "{}  Open comment panel",
             fmt_key(&kb.open_panel.display(), key_width)
         )),
@@ -841,7 +879,18 @@ fn build_help_lines(kb: &KeybindingsConfig) -> Vec<Line<'static>> {
             "{}  Suggest on selection",
             fmt_key(&kb.suggestion.display(), key_width)
         )),
+        Line::from(format!(
+            "{}  Copy selected lines",
+            fmt_key(&kb.copy_selection.display(), key_width)
+        )),
+        Line::from(format!(
+            "{}  Add private temporary note on selection",
+            fmt_key(&kb.temporary_comment.display(), key_width)
+        )),
         Line::from(format!("{}  Cancel selection", fmt_key("Esc", key_width))),
+        Line::from("  Private notes are never saved or posted; copy them before leaving."),
+        Line::from("  Notes clear when changing files or leaving the diff pane."),
+        Line::from("  Help/input overlays and split/fullscreen switches preserve notes."),
         Line::from(format!(
             "{}  Toggle markdown rich display",
             fmt_key(&kb.toggle_markdown_rich.display(), key_width)
@@ -1561,6 +1610,40 @@ fn build_help_lines(kb: &KeybindingsConfig) -> Vec<Line<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diff_review_help_uses_configured_bindings_and_explains_note_lifetime() {
+        let kb: KeybindingsConfig = toml::from_str(
+            r#"
+            copy_selection = "x"
+            previous_hunk = "p"
+            next_hunk = "f"
+            temporary_comment = "e"
+            copy_temporary_comments = "E"
+            "#,
+        )
+        .unwrap();
+        let joined = build_help_lines(&kb)
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for (key, description) in [
+            ("x", "Copy line or selection"),
+            ("p/f", "Previous/next change hunk"),
+            ("e", "Add private temporary note"),
+            ("E", "Copy temporary notes with code context"),
+        ] {
+            assert!(
+                joined
+                    .lines()
+                    .any(|line| line.trim_start().starts_with(key) && line.contains(description)),
+                "missing configured help for {key}: {description}"
+            );
+        }
+        assert!(joined.contains("Notes clear when changing files or leaving the diff pane"));
+        assert!(joined.contains("never saved or posted"));
+    }
 
     #[test]
     fn test_build_config_lines_does_not_panic() {

@@ -74,6 +74,7 @@ impl App {
                     let mut fingerprint = self.mouse_context_fingerprint();
                     for ev in coalesced {
                         self.handle_mouse(ev, terminal).await?;
+                        self.reconcile_temporary_review();
                         let current = self.mouse_context_fingerprint();
                         if current != fingerprint {
                             // 画面/モーダルが変わったら残りは旧レイアウト前提のため破棄
@@ -90,6 +91,17 @@ impl App {
     }
 
     pub(crate) async fn handle_key_event(
+        &mut self,
+        key: event::KeyEvent,
+        terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    ) -> Result<()> {
+        self.reconcile_temporary_review();
+        let result = self.dispatch_key_event(key, terminal).await;
+        self.reconcile_temporary_review();
+        result
+    }
+
+    async fn dispatch_key_event(
         &mut self,
         key: event::KeyEvent,
         terminal: &mut Terminal<CrosstermBackend<Stdout>>,

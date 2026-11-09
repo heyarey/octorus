@@ -36,6 +36,7 @@ impl App {
 
     /// Split Viewでファイル選択変更時にdiff状態を同期
     pub(crate) fn sync_diff_to_selected_file(&mut self) {
+        self.reconcile_temporary_review();
         self.diff_scroll.reset();
         self.multiline_selection = None;
         self.cmt.comment_panel_open = false;

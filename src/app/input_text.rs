@@ -39,6 +39,9 @@ impl App {
                 }
 
                 match self.input_mode.take() {
+                    Some(InputMode::TemporaryComment(note)) => {
+                        self.save_temporary_comment(note, content);
+                    }
                     Some(InputMode::Comment(ctx)) => {
                         self.submit_comment(ctx, content);
                     }
@@ -148,7 +151,6 @@ impl App {
         let filename = file.filename.clone();
         let repo = self.repo.clone();
         let pr_number = self.pr_number();
-        let position = ctx.diff_position;
         let start_line = ctx.start_line_number;
         let end_line = ctx.line_number;
 
@@ -164,7 +166,7 @@ impl App {
                 .await
             } else {
                 github::create_review_comment(
-                    &repo, pr_number, &commit_id, &filename, position, &body,
+                    &repo, pr_number, &commit_id, &filename, end_line, &body,
                 )
                 .await
             };

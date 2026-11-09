@@ -1239,7 +1239,7 @@ fn render_with_inline_comment(frame: &mut Frame, app: &mut App) {
 }
 
 pub(crate) fn render_header(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    let header_text = app
+    let mut header_text = app
         .files()
         .get(app.selected_file)
         .map(|file| {
@@ -1249,6 +1249,13 @@ pub(crate) fn render_header(frame: &mut Frame, app: &App, area: ratatui::layout:
             )
         })
         .unwrap_or_else(|| "No file selected".to_string());
+
+    if app.temporary_comment_count() > 0 {
+        header_text.push_str(&format!(
+            " | {} temporary notes",
+            app.temporary_comment_count()
+        ));
+    }
 
     let theme = app.theme;
     let attention = app.diff_attention().diff;
@@ -1266,6 +1273,7 @@ pub(crate) fn render_header(frame: &mut Frame, app: &App, area: ratatui::layout:
 pub(crate) fn render_diff_content(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     let visible_height = area.height.saturating_sub(2) as usize;
     app.diff_scroll.set_visible_lines(visible_height);
+    let comment_lines = app.diff_comment_lines();
 
     // Try to use cached lines if available
     let (lines, scroll_row, first_line) = if let Some(ref cache) = app.diff_store.current {
@@ -1284,7 +1292,7 @@ pub(crate) fn render_diff_content(frame: &mut Frame, app: &mut App, area: ratatu
             cache,
             start..end,
             app.diff_scroll.selected_line,
-            &app.cmt.file_comment_lines,
+            &comment_lines,
             app.config.diff.bg_color,
             multiline_range,
             area.width.saturating_sub(2),
@@ -1302,7 +1310,7 @@ pub(crate) fn render_diff_content(frame: &mut Frame, app: &mut App, area: ratatu
                     app.diff_scroll.selected_line,
                     &f.filename,
                     theme_name,
-                    &app.cmt.file_comment_lines,
+                    &comment_lines,
                     app.config.diff.tab_width,
                 ),
                 None => {
@@ -1525,11 +1533,14 @@ fn highlight_or_fallback(
 
 fn render_footer(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let help_text = if app.multiline_selection.is_some() {
-        "j/k/↑↓: extend selection | c: comment | s: suggest | Esc: cancel".to_string()
+        format!(
+            "j/k: extend | {} | Esc: cancel",
+            super::footer::footer_hint_diff(&app.config.keybindings)
+        )
     } else if app.cmt.comment_panel_open {
         "r: reply | Esc: close".to_string()
     } else {
-        super::footer::footer_hint_back(&app.config.keybindings)
+        super::footer::footer_hint_diff(&app.config.keybindings)
     };
 
     let footer_line = super::footer::build_footer_line(app, &help_text);
@@ -1651,6 +1662,23 @@ pub fn render_text_input(frame: &mut Frame, app: &App) {
     render_header(frame, app, chunks[0]);
 
     match &app.input_mode {
+        Some(InputMode::TemporaryComment(note)) => {
+            let context = Paragraph::new(note.context.as_str())
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(format!("{} — {}", note.path, note.location)),
+                )
+                .wrap(Wrap { trim: false });
+            frame.render_widget(context, chunks[1]);
+            render_text_input_area(
+                frame,
+                app,
+                chunks[2],
+                "Temporary note · private · cleared on pane change",
+                "Write feedback for your local agent...",
+            );
+        }
         Some(InputMode::Comment(ctx)) => {
             render_comment_context(frame, app, chunks[1], ctx);
             render_text_input_area(
